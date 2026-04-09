@@ -13,58 +13,62 @@ Two user paths:
 **Frontend:**
 - React 18 + Vite
 - Tailwind CSS v4
-- React Router DOM
+- React Router DOM v6
 - Axios
 
 **Backend:**
-- Python 3.11 + FastAPI
-- Uvicorn
-- SQLite (aiosqlite)
+- Python 3.12 + FastAPI
+- Uvicorn / Gunicorn (production)
+- SQLite (synchronous sqlite3)
 
 ## Project Structure
 
 ```
 app/
   frontend/                  React + Vite + Tailwind CSS
+    package.json             npm dependencies
+    vite.config.js           Vite config (host 0.0.0.0:5000, proxy /api → localhost:8000)
+    index.html               HTML entry point
     src/
+      main.jsx               React entry
+      index.css              Tailwind CSS import
       App.jsx                Router setup
       api.js                 API client (proxied via Vite to /api → localhost:8000)
       pages/
         Landing.jsx          Home/landing page + footer links (Business Portal / Admin)
         Dashboard.jsx        Form + results + AI chat
+        TestForm.jsx         Redirect stub → /dashboard
         CompanyLogin.jsx     Business portal login (/business)
         CompanyDashboard.jsx Bank statement upload → score (/business/dashboard)
         Admin.jsx            Superadmin panel (model info, CSV retrain, company mgmt)
-      components/
-        Form.jsx             6-step progressive form
-        ScoreDisplay.jsx     Score gauge, factors, tips
-        AIChat.jsx           Template-based AI chat
-        BankStatementUpload.jsx  Bank statement CSV uploader (individual flow)
   backend/                   FastAPI Python backend
-    main.py                  API routes (individual + business + admin)
+    main.py                  API routes (individual + business + admin) + SPA static serving
     model.py                 Logistic Regression on lending_data.csv (7 features)
     utils.py                 Factors, tips, explanations, AI responses
     database.py              SQLite — scores, companies, sessions, business_checks
     auth.py                  HTTP Basic Auth for superadmin
     statement_parser.py      Ghana bank statement CSV parser (6 layouts)
+    momo.py                  MTN MoMo OAuth integration (sandbox/mock mode by default)
 Credit_Risk/
   Resources/lending_data.csv  Training data (77,536 rows, original notebook format)
 ```
 
-## Model Features (original notebook: X = df.drop(columns='loan_status'))
-
-loan_size, interest_rate, borrower_income, debt_to_income, num_of_accounts, derogatory_marks, total_debt
-
-- Upload CSVs use these 7 columns + loan_status directly (no translation)
-- Individual form inputs are translated to these features for scoring
-- Training data: lending_data.csv (77K rows) — retrain appends to this file
-
 ## Workflows
 
-- **Start application** – React Vite frontend on port 5000
-- **Backend API** – FastAPI on localhost:8000; retrains model on first startup if no model.pkl
+- **Start application** – React Vite frontend on port 5000 (webview)
+  - Command: `cd app/frontend && npm run dev`
+- **Backend API** – FastAPI on localhost:8000 (console)
+  - Command: `cd app/backend && uvicorn main:app --host localhost --port 8000`
 
 Frontend proxies `/api/*` → `localhost:8000` via Vite config.
+
+## Environment Variables
+
+| Variable         | Description                          | Default       |
+|------------------|--------------------------------------|---------------|
+| `ADMIN_USERNAME` | Superadmin login username            | `superadmin`  |
+| `ADMIN_PASSWORD` | Superadmin login password (required) | *(required)*  |
+| `MOMO_SUBSCRIPTION_KEY` | MTN MoMo API key (optional) | sandbox mode  |
 
 ## API Endpoints
 
@@ -73,6 +77,7 @@ Frontend proxies `/api/*` → `localhost:8000` via Vite config.
 - `POST /explain` – plain-English explanation + top suggestions
 - `POST /chat` – template-based AI assistant responses
 - `GET /stats` – aggregate stats from recent checks
+- `POST /parse/bank-statement` – parse bank CSV and extract financial signals
 
 **Business Portal**
 - `POST /business/login` – company email+password → session token
@@ -94,10 +99,19 @@ Frontend proxies `/api/*` → `localhost:8000` via Vite config.
 - 670–739 → Good
 - 740+ → Excellent
 
+## Deployment
+
+Production: autoscale deployment
+- Build: `cd app/frontend && npm install && npm run build`
+- Run: `cd app/backend && gunicorn main:app -w 1 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:5000 --timeout 120`
+
+In production, the FastAPI backend serves the compiled React SPA from `app/frontend/dist/`.
+
 ## Key Notes
 
 - Individual users: no sign-up, anonymous UUIDs, no PII stored
 - Business users: email + password auth, session tokens in DB, audit trail of checks
 - Superadmin credentials: set via ADMIN_USERNAME / ADMIN_PASSWORD env vars
-- Frontend uses Vite's dev proxy to route API calls; in production both services run together
+- Frontend uses Vite's dev proxy to route API calls; in production both services run from one process
 - Disclaimer shown on results: "This is not an official credit score"
+- Model trains automatically on first startup from lending_data.csv (~30s); cached as model.pkl
